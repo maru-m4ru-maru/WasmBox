@@ -25,6 +25,7 @@ jobs:
           unzip -q /tmp/wasmbox-m1-storage.zip -d /tmp/wasmbox-import
           cp -R /tmp/wasmbox-import/. .
           rm -rf /tmp/wasmbox-import /tmp/wasmbox-m1-storage.zip .incoming .github/workflows/import-storage.yml
+          printf '%s\n' 'declare module "fake-indexeddb/auto";' > test/fake-indexeddb-auto.d.ts
       - name: Install dependencies
         run: npm install
       - name: Test
