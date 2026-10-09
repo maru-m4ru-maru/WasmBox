@@ -46,9 +46,9 @@ try {
   );
 
   const diagnostics = await sendCommand(
-    "echo __WASMBX_DIAG__; echo __SYS_BLOCK__; ls -l /sys/block 2>&1; " +
-      "echo __PARTITIONS__; cat /proc/partitions; echo __DEV__; ls -l /dev; " +
-      "echo __KERNEL_DISK_LOG__; dmesg 2>&1 | grep -iE 'ata|ide|disk|scsi|virtio' | tail -40",
+    "echo SYS_BLOCK; ls /sys/block 2>&1; echo PARTITIONS; cat /proc/partitions; " +
+      "echo DISK_NODES; ls -l /dev 2>&1 | grep -E ' (sd|hd|vd)[a-z]'; " +
+      "echo DRIVER_LOG; dmesg 2>&1 | grep -iE 'ata|ide|disk|scsi|virtio' | tail -20",
   );
 
   const partitions = [

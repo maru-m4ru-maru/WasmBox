@@ -45,7 +45,7 @@ jobs:
           cp node_modules/v86/build/v86.wasm poc/vendor/v86.wasm
           curl -fL https://raw.githubusercontent.com/copy/v86/master/bios/seabios.bin -o poc/vendor/seabios.bin
           curl -fL https://raw.githubusercontent.com/copy/v86/master/bios/vgabios.bin -o poc/vendor/vgabios.bin
-          curl -fL https://i.copy.sh/buildroot-bzimage68.bin -o poc/vendor/buildroot-bzimage.bin
+          curl -fL https://k.copy.sh/buildroot-bzimage.bin -o poc/vendor/buildroot-bzimage.bin
       - name: Start PoC server
         run: |
           node tools/serve.ts poc 8080 > /tmp/wasmbox-poc-server.log 2>&1 &
