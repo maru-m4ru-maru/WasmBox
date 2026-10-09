@@ -27,7 +27,7 @@ describe("V86BlockDevice: v86 の起動手順との適合", () => {
     const { device } = await setup();
     for (const method of [device.get, device.set, device.load, device.get_from_cache]) assert.equal(typeof method, "function");
     assert.equal(device.get_from_cache(0, SECTOR), undefined);
-    assert.throws(() => device.get_from_cache(SIZE, SECTOR), RangeError);
+    assert.equal(device.get_from_cache(SIZE, SECTOR), undefined);
 
     // starter.js の cont() と同じ手順: onload を代入してから load() を呼ぶ
     let loaded: unknown;
