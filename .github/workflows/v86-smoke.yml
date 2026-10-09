@@ -33,7 +33,6 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      - run: npm run poc:build
       - name: Install browser smoke dependencies
         run: npm install --no-save --package-lock=false v86@0.5 playwright
       - name: Install Chromium
@@ -49,10 +48,10 @@ jobs:
           tar -tjf /tmp/v86-buildroot.tar.bz2 | grep -Fx buildroot-bzimage68_v86.bin
           tar -xjf /tmp/v86-buildroot.tar.bz2 -C poc/vendor buildroot-bzimage68_v86.bin
           mv poc/vendor/buildroot-bzimage68_v86.bin poc/vendor/buildroot-bzimage.bin
-      - name: Start PoC server
+      - name: Start PoC with npm run poc
         run: |
-          node tools/serve.ts poc 8080 > /tmp/wasmbox-poc-server.log 2>&1 &
-          for attempt in $(seq 1 30); do
+          npm run poc > /tmp/wasmbox-poc-server.log 2>&1 &
+          for attempt in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:8080/ >/dev/null; then
               exit 0
             fi
