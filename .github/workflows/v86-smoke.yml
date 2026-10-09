@@ -45,7 +45,10 @@ jobs:
           cp node_modules/v86/build/v86.wasm poc/vendor/v86.wasm
           curl -fL https://raw.githubusercontent.com/copy/v86/master/bios/seabios.bin -o poc/vendor/seabios.bin
           curl -fL https://raw.githubusercontent.com/copy/v86/master/bios/vgabios.bin -o poc/vendor/vgabios.bin
-          curl -fL https://k.copy.sh/buildroot-bzimage.bin -o poc/vendor/buildroot-bzimage.bin
+          curl -fL https://github.com/chschnell/v86-buildroot/releases/download/v1.0.2/v86-buildroot-1.0.2.tar.bz2 -o /tmp/v86-buildroot.tar.bz2
+          tar -tjf /tmp/v86-buildroot.tar.bz2 | grep -Fx buildroot-bzimage68_v86.bin
+          tar -xjf /tmp/v86-buildroot.tar.bz2 -C poc/vendor buildroot-bzimage68_v86.bin
+          mv poc/vendor/buildroot-bzimage68_v86.bin poc/vendor/buildroot-bzimage.bin
       - name: Start PoC server
         run: |
           node tools/serve.ts poc 8080 > /tmp/wasmbox-poc-server.log 2>&1 &
