@@ -24,6 +24,7 @@ export interface V86Loadable {
   onprogress: ((event: object) => void) | undefined;
   load(): void;
   get_and_cache(start: number, length: number, callback: (data: Uint8Array) => void): void;
+  get_from_cache(start: number, length: number): Uint8Array | undefined;
   get(start: number, length: number, callback: (data: Uint8Array) => void): void;
   set(start: number, data: Uint8Array, callback: () => void): void;
   get_buffer(callback: (buffer?: ArrayBuffer) => void): void;
@@ -80,19 +81,6 @@ export class V86BlockDevice implements V86Loadable {
   load(): void {
     // BlockStore は開いた状態で渡されるので、読み込む物はない。すぐ「準備完了」を通知する。
     this.onload?.(Object.create(null));
-  }
-
-  get_from_cache(start: number, length: number): Uint8Array | undefined {
-    if (
-      !Number.isInteger(start) ||
-      !Number.isInteger(length) ||
-      start < 0 ||
-      length < 0 ||
-      start + length > this.byteLength
-    ) {
-      throw new RangeError(`キャッシュ確認の範囲がディスク外です: ${start}..${start + length}`);
-    }
-    return undefined;
   }
 
   get(start: number, length: number, callback: (data: Uint8Array) => void): void {
