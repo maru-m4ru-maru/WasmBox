@@ -65,6 +65,7 @@ dd if=/dev/sda bs=512 skip=10 count=1 2>/dev/null | head -c 14
 
 | 症状 | 考えられる原因 |
 |---|---|
+| 起動直後に `get_and_cache is not a function` / `get_from_cache is not a function` | アダプタに v86 が呼ぶメソッドが足りない。v86 master の `starter.js`（起動前に `get_and_cache(0, 512)`）と `ide.js`（`get_from_cache(0, 512)`）が要求する。`src/engine/v86-block-device.ts` を確認 |
 | コンソールに `Ignored file` と出る | v86 がアダプタをディスクと認識していない。v86 の版が違い、`get/set/load` を持つオブジェクトを受け付けなくなっている可能性。`src/browser/starter.js` の `add_file` を確認 |
 | `/dev/sd*` も `/dev/hd*` も無い | そのカーネルに IDE/ATA ドライバが入っていない。別のカーネルを使う |
 | 起動途中や dd で止まる | ステータス行に `⚠️ ディスクI/Oに失敗` が出ていないか確認（v86 のコールバックには失敗を伝える手段がなく、失敗するとゲストの該当 I/O は止まります） |

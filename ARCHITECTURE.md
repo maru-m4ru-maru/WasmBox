@@ -165,7 +165,8 @@ interface Engine {
 - 起動後、ルートFSは BlockStore 経由でストリーミングされる。
 - 📝 **M2 の PoC は v86 で進める**（2026-10-09 仮決め。最終判断は、Node.js が動くかの確認後）。
   - 理由: v86 のディスクは `get(offset, len, callback)` / `set(offset, data, callback)` を持つオブジェクトで、`BlockStore` にほぼ 1 対 1 で対応する。
-  - 🔬 v86 は、`get` / `set` / `load` を持つオブジェクトを `hda` にそのまま渡せる（v86 の `starter.js` の `add_file` による。ソースの公開ミラーを読んで確認したもので、最新版では未確認）。
+    加えて、v86 master は **`get_and_cache(start, len, callback)`**（`starter.js` が起動前に MBR を読むために呼ぶ）と **`get_from_cache(start, len)`**（`ide.js` のジオメトリ計算が同期で呼ぶ）も要求する（2026-10-09、v86 master のソースで確認）。
+  - v86 は、`get` / `set` / `load` を持つオブジェクトを `hda` にそのまま渡せる（v86 master の `starter.js` の `add_file` で確認、2026-10-09）。
     したがって v86 のパッチ（フォーク）は不要のはず。接続は `src/engine/v86-block-device.ts`。
   - 🔬 v86 標準の非同期ディスクは、読んだ・書いたブロックをメモリ上の Map に溜め続け、追い出しの仕組みが見当たらない。WasmBox の LRU＋IndexedDB はそこを補う。
   - ⚠️ **最大のリスク: Node.js が動くか。** v86 は 32bit x86 のエミュレータだと理解している（🔬 要確認）。公式の 32bit Linux 向け Node バイナリは提供されていなかったはずで、

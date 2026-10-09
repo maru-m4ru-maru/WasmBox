@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { V86BlockDevice } from "../src/engine/v86-block-device.ts";
-import { makeImage, newEnv, openStore, sleep } from "./helpers.ts";
+import { deferred, eventually, makeImage, newEnv, openStore, sleep } from "./helpers.ts";
 import type { TestImage } from "./helpers.ts";
 
 const SECTOR = 512;
@@ -162,3 +162,101 @@ describe("V86BlockDevice: 失敗時の挙動", () => {
     assert.deepEqual(await getAsync(device, 0, SECTOR), (image as TestImage).bytes.slice(0, SECTOR));
   });
 });
+
+// v86 master の starter.js / ide.js が、ディスクに求めるメソッド（2026-10-09 に確認）
+describe("V86BlockDevice: v86 master の起動手順（get_and_cache / get_from_cache）", () => {
+  it("v86 が呼ぶメソッドをすべて備えている", async () => {
+    const { device } = await setup();
+    for (const name of [
+      "get", "set", "load", "get_and_cache", "get_from_cache", "get_buffer", "get_state", "set_state",
+    ] as const) {
+      assert.equal(typeof device[name], "function", "必要なメソッドがありません");
+    }
+    assert.equal(typeof device.byteLength, "number");
+  });
+
+  it("starter.js の done() の手順を再現できる: onload → get_and_cache(0, 512) → ide.js の get_from_cache(0, 512)", async () => {
+    const { device } = await setup();
+    const mbr = new Uint8Array(SECTOR);
+    mbr[510] = 0x55;
+    mbr[511] = 0xaa;
+    await setAsync(device, 0, mbr);
+
+    let loaded = false;
+    device.onload = () => {
+      loaded = true;
+    };
+    device.load();
+    assert.equal(loaded, true);
+
+    const viaCallback = await new Promise<Uint8Array>((resolve) => device.get_and_cache(0, SECTOR, resolve));
+    assert.deepEqual(viaCallback, mbr);
+
+    const cached = device.get_from_cache(0, SECTOR);
+    assert.ok(cached, "キャッシュから返るはず");
+    assert.equal(cached[510], 0x55);
+    assert.equal(cached[511], 0xaa);
+  });
+
+  it("キャッシュする前は undefined。範囲が先頭セクタに収まらない要求も undefined", async () => {
+    const { image, device } = await setup();
+    assert.equal(device.get_from_cache(0, SECTOR), undefined);
+
+    await new Promise<Uint8Array>((resolve) => device.get_and_cache(0, SECTOR, resolve));
+    assert.deepEqual(device.get_from_cache(0, SECTOR), image.bytes.slice(0, SECTOR));
+    assert.deepEqual(device.get_from_cache(256, 256), image.bytes.slice(256, 512));
+    assert.equal(device.get_from_cache(0, SECTOR * 2), undefined);
+    assert.equal(device.get_from_cache(SECTOR, SECTOR), undefined);
+    assert.equal(device.get_from_cache(-1, 1), undefined);
+  });
+
+  it("返したバイト列を書き換えても、キャッシュの内容は変わらない", async () => {
+    const { image, device } = await setup();
+    await new Promise<Uint8Array>((resolve) => device.get_and_cache(0, SECTOR, resolve));
+    device.get_from_cache(0, SECTOR)?.fill(0);
+    assert.deepEqual(device.get_from_cache(0, SECTOR), image.bytes.slice(0, SECTOR));
+  });
+
+  it("先頭セクタに書き込むと、古いキャッシュは使われない（undefined に戻る）", async () => {
+    const { device } = await setup();
+    await new Promise<Uint8Array>((resolve) => device.get_and_cache(0, SECTOR, resolve));
+    assert.ok(device.get_from_cache(0, SECTOR));
+    await setAsync(device, 0, new Uint8Array(SECTOR).fill(9));
+    assert.equal(device.get_from_cache(0, SECTOR), undefined);
+
+    await new Promise<Uint8Array>((resolve) => device.get_and_cache(0, SECTOR, resolve));
+    await setAsync(device, SECTOR * 5, new Uint8Array(SECTOR).fill(1));
+    assert.ok(device.get_from_cache(0, SECTOR));
+  });
+
+  it("get_and_cache の読み込み中に先頭セクタが書き換えられても、古い内容をキャッシュしない", async () => {
+    const { env, device } = await setup();
+    const gate = deferred();
+    env.source.gate = gate.promise;
+
+    const reading = new Promise<Uint8Array>((resolve) => device.get_and_cache(0, SECTOR, resolve));
+    await eventually(() => env.source.calls.length === 1);
+    const writing = setAsync(device, 0, new Uint8Array(SECTOR).fill(7));
+    gate.resolve();
+    await reading;
+    await writing;
+
+    assert.equal(device.get_from_cache(0, SECTOR), undefined, "古い内容がキャッシュされています");
+    assert.deepEqual(await getAsync(device, 0, SECTOR), new Uint8Array(SECTOR).fill(7));
+  });
+
+  it("get_and_cache が失敗したら onError に通知し、コールバックは呼ばない（起動は止まる）", async () => {
+    const errors: unknown[] = [];
+    const { env, device } = await setup({ onError: (e) => errors.push(e) });
+    env.source.failTimes = 1;
+    let called = false;
+    device.get_and_cache(0, SECTOR, () => {
+      called = true;
+    });
+    await sleep(30);
+    assert.equal(called, false);
+    assert.equal(errors.length, 1);
+    assert.equal(device.get_from_cache(0, SECTOR), undefined);
+  });
+});
+

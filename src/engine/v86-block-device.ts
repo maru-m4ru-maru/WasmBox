@@ -7,14 +7,23 @@ import type { BlockStore } from "../storage/types.ts";
  * それをそのままディスクとして使う（URL や ArrayBuffer ではなく、自作の実装を渡せる）。
  * 起動時に `onload` を代入してから `load()` を呼び、`onload` が呼ばれた時点でディスクとして登録される。
  *
- * ※ 上記は v86 のソースの公開ミラーを読んで確認した挙動。最新版で変わっていないかは実機で要確認。
+ * v86 の master（2026-10-09 時点）のソースで確認した、ディスクに求められるメソッド:
+ * - get / set / load : starter.js の add_file が判定し、読み書きに使う
+ * - get_and_cache(start, len, callback) : starter.js の done() が、v86 の起動前に (0, 512) で呼ぶ
+ *   （IDE がディスクのジオメトリを MBR から計算するため）。無いと起動処理が止まる。
+ * - get_from_cache(start, len) : ide.js の get_disk_geometry が (0, 512) で同期的に呼ぶ。
+ *   返せなければ undefined にする（v86 はディスクサイズからジオメトリを推定する）。
+ * - byteLength、get_buffer、get_state / set_state
+ *
+ * ※ IDE の残りの実装（FLUSH CACHE の扱いなど）は未確認。v86 を更新したら、ide.js が this.buffer に
+ *   呼ぶメソッドを grep し直すこと（例: grep -o "buffer\\.[a-z_]*\\(" src/ide.js | sort | uniq -c）。
  */
 export interface V86Loadable {
   byteLength: number;
   onload: ((event: object) => void) | undefined;
   onprogress: ((event: object) => void) | undefined;
   load(): void;
-  get_from_cache(start: number, length: number): Uint8Array | undefined;
+  get_and_cache(start: number, length: number, callback: (data: Uint8Array) => void): void;
   get(start: number, length: number, callback: (data: Uint8Array) => void): void;
   set(start: number, data: Uint8Array, callback: () => void): void;
   get_buffer(callback: (buffer?: ArrayBuffer) => void): void;
@@ -51,6 +60,10 @@ export class V86BlockDevice implements V86Loadable {
   readonly #onError: (error: unknown) => void;
   /** 最後に発行した書き込み。失敗しても解決する（失敗は onError に流す）。 */
   #lastWrite: Promise<void> = Promise.resolve();
+  /** 先頭セクタ（MBR）のキャッシュ。IDE のジオメトリ計算が同期で読むために保持する。 */
+  #firstSector: Uint8Array | undefined = undefined;
+  /** 先頭セクタへの書き込み回数。読み込み中に書かれたら、古い内容をキャッシュしないために使う。 */
+  #firstSectorWrites = 0;
 
   constructor(store: BlockStore, options: V86BlockDeviceOptions = {}) {
     if (store.size === 0 || store.size % SECTOR_SIZE !== 0) {
@@ -90,9 +103,39 @@ export class V86BlockDevice implements V86Loadable {
 
   set(start: number, data: Uint8Array, callback: () => void): void {
     const copy = data.slice(); // v86 は set() の直後にバッファを再利用しうる
+    if (start < SECTOR_SIZE) {
+      this.#firstSector = undefined; // 先頭セクタが変わるので、保持していた MBR は古くなる
+      this.#firstSectorWrites++;
+    }
     const write = this.#store.write(start, copy);
     this.#lastWrite = write.catch(() => {});
     write.then(() => callback(), (error) => this.#onError(error));
+  }
+
+  /**
+   * v86 の起動前に starter.js が get_and_cache(0, 512, callback) を呼ぶ。
+   * 読んだ先頭セクタを保持し、get_from_cache で同期的に返せるようにする。
+   */
+  get_and_cache(start: number, length: number, callback: (data: Uint8Array) => void): void {
+    const writesBefore = this.#firstSectorWrites;
+    this.get(start, length, (data) => {
+      // 読み込み中に先頭セクタが書き換えられていたら、古い内容は保持しない
+      if (start === 0 && data.byteLength >= SECTOR_SIZE && writesBefore === this.#firstSectorWrites) {
+        this.#firstSector = data.slice(0, SECTOR_SIZE);
+      }
+      callback(data);
+    });
+  }
+
+  /**
+   * v86 の ide.js が、ジオメトリ計算のために get_from_cache(0, 512) を同期的に呼ぶ。
+   * 保持している先頭セクタの範囲に収まる要求だけ返し、それ以外は undefined。
+   * undefined を返しても、v86 はディスクサイズからジオメトリを推定して続行する。
+   */
+  get_from_cache(start: number, length: number): Uint8Array | undefined {
+    const sector = this.#firstSector;
+    if (!sector || start < 0 || length < 0 || start + length > SECTOR_SIZE) return undefined;
+    return sector.slice(start, start + length);
   }
 
   get_buffer(callback: (buffer?: ArrayBuffer) => void): void {

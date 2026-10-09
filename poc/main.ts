@@ -96,7 +96,8 @@ async function main(): Promise<void> {
     cmdline: "tsc=reliable mitigations=off random.trust_cpu=on",
     hda: device, // get / set / load を持つオブジェクトは、そのままディスクとして使われる
     memory_size: 128 * MiB,
-    serial_container: $("serial"),
+    // serial_container は v86 master で非推奨（starter.js のコメントより）。serial_console を使う
+    serial_console: { type: "textarea", container: $("serial") },
     disable_mouse: true,
     disable_keyboard: true,
     disable_speaker: true,
