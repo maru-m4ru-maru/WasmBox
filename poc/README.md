@@ -19,21 +19,35 @@ npm run poc          # ビルドして http://127.0.0.1:8080/ で配信
 
 これが ❌ なら、v86 以前に Storage 層がそのブラウザで動いていません。内容を教えてください。
 
-## 1. v86 のファイルを `poc/vendor/` に置く
+## 1. v86 とディスク対応カーネルを `poc/vendor/` に置く
+
+PoC は以下のファイルを `poc/vendor/` に必要とします。
 
 | ファイル | 入手 |
 |---|---|
-| `libv86.js`, `v86.wasm` | `npm install v86` で入る `build/` 内、または v86 のリポジトリでビルド |
-| `seabios.bin`, `vgabios.bin` | 同上（パッケージ内の `bios/` など） |
-| `buildroot-bzimage.bin` | `wget https://k.copy.sh/buildroot-bzimage.bin` |
+| `libv86.js`, `v86.wasm` | `npm install v86@0.5` で入る `node_modules/v86/build/` 内 |
+| `seabios.bin`, `vgabios.bin` | v86 の `bios/`。下のコマンドでは公式リポジトリから取得 |
+| `buildroot-bzimage.bin` | [chschnell/v86-buildroot v1.0.2](https://github.com/chschnell/v86-buildroot/releases/tag/v1.0.2) のディスク対応カーネル |
 
-- パッケージ内の場所は版によって違うかもしれません。次のコマンドで探せます。
-  ```sh
-  find node_modules/v86 \( -name '*.wasm' -o -name 'libv86*' -o -name 'seabios.bin' -o -name 'vgabios.bin' \)
-  ```
-- `libv86.js` が無く `libv86.mjs` だけの場合は、`poc/index.html` の `<script src="vendor/libv86.js">` を
-  ES モジュールの import に変える必要があります（グローバルの `V86` が無くなるため）。
-- `poc/vendor/` はコミットしないでください（`.gitignore` 済み）。
+`buildroot-bzimage68.bin` など、シリアル端末向けのサンプルカーネルでは、v86 自体が起動してもゲスト内に `/dev/sda` / `/dev/hda` が現れない場合があります。ディスク疎通テストには、ATA / ATA_PIIX とブロックデバイスを有効にした v86-buildroot カーネルを使ってください。これは GitHub Actions の実ブラウザテストで確認した構成です。
+
+次のコマンドで配置できます（`poc/vendor/` はコミットしないでください）。
+
+```sh
+npm install v86@0.5
+mkdir -p poc/vendor
+cp node_modules/v86/build/libv86.js poc/vendor/libv86.js
+cp node_modules/v86/build/v86.wasm poc/vendor/v86.wasm
+curl -fL https://raw.githubusercontent.com/copy/v86/master/bios/seabios.bin -o poc/vendor/seabios.bin
+curl -fL https://raw.githubusercontent.com/copy/v86/master/bios/vgabios.bin -o poc/vendor/vgabios.bin
+curl -fL https://github.com/chschnell/v86-buildroot/releases/download/v1.0.2/v86-buildroot-1.0.2.tar.bz2 -o /tmp/v86-buildroot.tar.bz2
+tar -xjf /tmp/v86-buildroot.tar.bz2 -C /tmp buildroot-bzimage68_v86.bin
+mv /tmp/buildroot-bzimage68_v86.bin poc/vendor/buildroot-bzimage.bin
+```
+
+- v86 の `build/` 内のファイル名は配布版によって異なることがあります。必要なら `find node_modules/v86 \( -name '*.wasm' -o -name 'libv86*' -o -name 'seabios.bin' -o -name 'vgabios.bin' \)` で確認してください。
+- `libv86.js` が無く `libv86.mjs` だけの場合は、`poc/index.html` の読み込み方法を ES モジュールに変更する必要があります（グローバルの `V86` がなくなるため）。
+- `poc/vendor/` は `.gitignore` 済みです。v86・BIOS・カーネルの実体はコミットしないでください。
 
 ## 2. 起動して、ディスクの疎通を確認する
 
