@@ -45,11 +45,31 @@ try {
     { timeout: 120000 },
   );
 
+  const diagnostics = await sendCommand(
+    "echo __WASMBX_DIAG__; echo __SYS_BLOCK__; ls -l /sys/block 2>&1; " +
+      "echo __PARTITIONS__; cat /proc/partitions; echo __DEV__; ls -l /dev; " +
+      "echo __KERNEL_DISK_LOG__; dmesg 2>&1 | grep -iE 'ata|ide|disk|scsi|virtio' | tail -40",
+  );
+
+  const partitions = [
+    ...diagnostics.matchAll(/^[ \t]*(\d+)[ \t]+(\d+)[ \t]+\d+[ \t]+((?:sd|hd)[a-z]+)[ \t]*$/gm),
+  ].map((match) => ({ major: match[1], minor: match[2], name: match[3] }));
+
+  for (const disk of partitions) {
+    await sendCommand(`mknod /dev/${disk.name} b ${disk.major} ${disk.minor} 2>/dev/null || true`);
+  }
+
   const scan = await sendCommand(
     'for d in /dev/sda /dev/hda; do if [ -b "$d" ]; then echo __WASMBX_DISK__$d; break; fi; done',
   );
-  const disk = scan.match(/__WASMBX_DISK__(\/dev\/(?:sd|hd)a)/)?.[1];
-  assert.ok(disk, `v86 起動後にディスクが見つかりません。出力末尾:\n${scan.slice(-4000)}`);
+  const terminal = await page.locator("#serial").inputValue();
+  const disk = terminal.match(/__WASMBX_DISK__(\/dev\/(?:sd|hd)a)/)?.[1];
+
+  if (!disk) {
+    throw new Error(
+      `v86は起動しましたが、ディスクデバイスが見つかりません。\nパーティション表:\n${partitions.map((p) => `${p.major} ${p.minor} ${p.name}`).join("\n") || "(sd*/hd* なし)"}\n診断出力:\n${diagnostics.slice(-6000)}\nスキャン出力:\n${scan.slice(-2000)}`,
+    );
+  }
 
   await sendCommand(`echo hello-wasmbox | dd of=${disk} bs=512 seek=10 count=1 conv=sync 2>&1; sync`);
 
