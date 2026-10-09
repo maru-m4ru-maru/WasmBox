@@ -23,9 +23,11 @@ async function setup(overrides: { onError?: (e: unknown) => void } = {}) {
 }
 
 describe("V86BlockDevice: v86 の起動手順との適合", () => {
-  it("starter.js の判定（get && set && load）を満たし、load() で onload が呼ばれる", async () => {
+  it("v86 のディスク登録と IDE の同期キャッシュ確認に適合する", async () => {
     const { device } = await setup();
-    for (const method of [device.get, device.set, device.load]) assert.equal(typeof method, "function");
+    for (const method of [device.get, device.set, device.load, device.get_from_cache]) assert.equal(typeof method, "function");
+    assert.equal(device.get_from_cache(0, SECTOR), undefined);
+    assert.throws(() => device.get_from_cache(SIZE, SECTOR), RangeError);
 
     // starter.js の cont() と同じ手順: onload を代入してから load() を呼ぶ
     let loaded: unknown;
