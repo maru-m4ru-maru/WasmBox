@@ -32,32 +32,8 @@ jobs:
         run: npm test
       - name: Typecheck
         run: npm run typecheck
-      - name: Create CI workflow and commit verified files
+      - name: Commit verified files
         run: |
-          mkdir -p .github/workflows
-          cat > .github/workflows/ci.yml <<'EOF'
-          name: WasmBox CI
-
-          on:
-            push:
-            pull_request:
-
-          permissions:
-            contents: read
-
-          jobs:
-            test:
-              runs-on: ubuntu-latest
-              steps:
-                - uses: actions/checkout@v4
-                - uses: actions/setup-node@v4
-                  with:
-                    node-version: "22"
-                    cache: npm
-                - run: npm ci
-                - run: npm run typecheck
-                - run: npm test
-          EOF
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
