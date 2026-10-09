@@ -88,7 +88,7 @@ async function main(): Promise<void> {
   });
   installAutoFlush(device);
 
-  new V86({
+  const emulator = new V86({
     wasm_path: "vendor/v86.wasm",
     bios: { url: "vendor/seabios.bin" },
     vga_bios: { url: "vendor/vgabios.bin" },
@@ -103,6 +103,10 @@ async function main(): Promise<void> {
     disable_speaker: true,
     autostart: true,
   });
+
+  if (new URLSearchParams(location.search).get("smoke") === "1") {
+    (window as Window & { __wasmboxV86?: unknown }).__wasmboxV86 = emulator;
+  }
 
   $("flush").addEventListener("click", () => {
     device.flush().then(

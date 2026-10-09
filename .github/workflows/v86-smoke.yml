@@ -1,0 +1,60 @@
+name: v86 Browser Smoke
+
+on:
+  push:
+    paths:
+      - "src/storage/**"
+      - "src/engine/**"
+      - "poc/main.ts"
+      - "poc/index.html"
+      - "tools/v86-smoke.mjs"
+      - ".github/workflows/v86-smoke.yml"
+  pull_request:
+    paths:
+      - "src/storage/**"
+      - "src/engine/**"
+      - "poc/main.ts"
+      - "poc/index.html"
+      - "tools/v86-smoke.mjs"
+      - ".github/workflows/v86-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  v86-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run poc:build
+      - name: Install browser smoke dependencies
+        run: npm install --no-save --package-lock=false v86@0.5 playwright
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Prepare v86 assets
+        run: |
+          mkdir -p poc/vendor
+          cp node_modules/v86/build/libv86.js poc/vendor/libv86.js
+          cp node_modules/v86/build/v86.wasm poc/vendor/v86.wasm
+          curl -fL https://raw.githubusercontent.com/copy/v86/master/bios/seabios.bin -o poc/vendor/seabios.bin
+          curl -fL https://raw.githubusercontent.com/copy/v86/master/bios/vgabios.bin -o poc/vendor/vgabios.bin
+          curl -fL https://i.copy.sh/buildroot-bzimage68.bin -o poc/vendor/buildroot-bzimage.bin
+      - name: Start PoC server
+        run: |
+          node tools/serve.ts poc 8080 > /tmp/wasmbox-poc-server.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/ >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/wasmbox-poc-server.log
+          exit 1
+      - run: node tools/v86-smoke.mjs
