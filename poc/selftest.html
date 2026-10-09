@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>WasmBox 自己診断</title>
+  <style>
+    body { font: 14px/1.6 system-ui, sans-serif; max-width: 52rem; margin: 2rem auto; padding: 0 1rem; }
+    pre { background: #f4f4f4; padding: 1rem; border-radius: 6px; white-space: pre-wrap; }
+    @media (prefers-color-scheme: dark) { body { background: #1b1b1b; color: #ddd; } pre { background: #2a2a2a; } a { color: #8ab4f8; } }
+  </style>
+</head>
+<body>
+  <h1>WasmBox 自己診断</h1>
+  <p>
+    v86 なしで、Storage 層とアダプタがこのブラウザで動くかを確かめます。<br>
+    ① <a href="?phase=write">phase=write</a>（書き込み）→ ② ページを開き直して <a href="?phase=verify">phase=verify</a>（再読み込み後も残っているか）
+  </p>
+  <pre id="out">実行中…</pre>
+  <script type="module" src="dist/selftest.js"></script>
+</body>
+</html>
