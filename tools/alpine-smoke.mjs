@@ -6,6 +6,7 @@ const page = await browser.newPage();
 const pageErrors = [];
 page.on("pageerror", (error) => pageErrors.push(error.message));
 const PROMPT = "__WASMBX_PROMPT__ ";
+const stripAnsi = (value) => value.replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, "");
 const CYCLES = 3;
 const measurements = [];
 
@@ -26,7 +27,7 @@ async function sendCommand(command) {
   await page.waitForFunction(
     ({ previous, marker }) => {
       const text = document.getElementById("serial")?.value ?? "";
-      return text.split(marker).length - 1 > previous && text.endsWith(marker);
+      return text.split(marker).length - 1 > previous && stripAnsi(text).endsWith(marker);
     },
     { previous: previousPrompts, marker: PROMPT },
     { timeout: 60000 },
@@ -61,7 +62,8 @@ async function waitForDirectRoot(timeout) {
     const failed = /Kernel panic|Unable to mount root fs|Run \/wasmbox-init as init process.*not found|initrd を取得できません/i.test(terminal + "\n" + header);
     const buildrootPrompt = terminal.includes("~% ");
     const directRootMarker = terminal.includes("[wasmbox-init] ルート:");
-    const alpinePrompt = terminal.includes("wasmbox:~#") || terminal.endsWith("# ");
+    const cleanTerminal = stripAnsi(terminal);
+    const alpinePrompt = cleanTerminal.includes("wasmbox:~#") || cleanTerminal.endsWith("# ");
     return failed || buildrootPrompt || (header.includes("initrd あり") && (directRootMarker || alpinePrompt));
   }, null, { timeout });
 
@@ -91,7 +93,7 @@ async function waitForDirectRoot(timeout) {
   await page.waitForFunction(
     (marker) => {
       const terminal = document.getElementById("serial")?.value ?? "";
-      return terminal.includes("__WASMBX_READY__") && terminal.endsWith(marker);
+      return terminal.includes("__WASMBX_READY__") && stripAnsi(terminal).endsWith(marker);
     },
     PROMPT,
     { timeout: 15000 },
