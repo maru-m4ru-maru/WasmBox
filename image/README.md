@@ -75,7 +75,7 @@ The selected kernel contains a Buildroot initramfs, whose embedded `/init` start
 
 The init script reads `root=` and `rootfstype=`, waits up to 15 seconds for the device, mounts ext4, checks `/sbin/init`, and calls `switch_root /newroot /sbin/init`. If that fails, it attempts `chroot` and leaves a rescue shell if necessary.
 
-A successful direct-root boot must print `[wasmbox-init] ルート: /dev/sda（ext4）`. The live smoke test also verifies that `/proc/mounts` shows ext4 mounted at `/`, runs Node.js and Python, records `free -m`, and repeats the browser boot three times.
+The init script prints `[wasmbox-init] ルート: /dev/sda（ext4）` before switching. The serial textarea may be redrawn when Alpine initializes its console, so the earlier line is not always retained; its absence from the current textarea alone does not prove initrd failure. The definitive post-boot check is `grep -E '^(\/dev\/(sd|hd)[a-z]+) \/ ext4 ' /proc/mounts`, which should show `/dev/sda / ext4 ...`. The live smoke test checks this mount, runs Node.js and Python, records `free -m`, and repeats the browser boot three times.
 
 Use `?initrd=none` to disable the external initrd, `?initrd=...` to provide an explicit path, `?root=/dev/hda` for a different disk name, and `?memory=512` to increase guest RAM.
 
