@@ -1,0 +1,76 @@
+name: Alpine Node.js Guest Smoke
+
+on:
+  push:
+    paths:
+      - "image/**"
+      - "poc/alpine.ts"
+      - "poc/alpine.html"
+      - "poc/main.ts"
+      - "src/storage/**"
+      - "src/engine/**"
+      - "tools/chunk-image.ts"
+      - "tools/inspect-image.ts"
+      - "tools/alpine-smoke.mjs"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/alpine-smoke.yml"
+  pull_request:
+    paths:
+      - "image/**"
+      - "poc/alpine.ts"
+      - "poc/alpine.html"
+      - "poc/main.ts"
+      - "src/storage/**"
+      - "src/engine/**"
+      - "tools/chunk-image.ts"
+      - "tools/inspect-image.ts"
+      - "tools/alpine-smoke.mjs"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/alpine-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  alpine-v86-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Install browser smoke dependencies
+        run: npm install --no-save --package-lock=false v86@0.5 playwright
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Build Alpine rootfs and verify ext4 chunks
+        run: bash image/build.sh
+      - name: Prepare v86 assets
+        run: |
+          mkdir -p poc/vendor
+          cp node_modules/v86/build/libv86.js poc/vendor/libv86.js
+          cp node_modules/v86/build/v86.wasm poc/vendor/v86.wasm
+          curl -fL https://raw.githubusercontent.com/copy/v86/master/bios/seabios.bin -o poc/vendor/seabios.bin
+          curl -fL https://raw.githubusercontent.com/copy/v86/master/bios/vgabios.bin -o poc/vendor/vgabios.bin
+          curl -fL https://github.com/chschnell/v86-buildroot/releases/download/v1.0.2/v86-buildroot-1.0.2.tar.bz2 -o /tmp/v86-buildroot.tar.bz2
+          tar -xjf /tmp/v86-buildroot.tar.bz2 -C poc/vendor buildroot-bzimage68_v86.bin
+          mv poc/vendor/buildroot-bzimage68_v86.bin poc/vendor/buildroot-bzimage.bin
+      - name: Start PoC web server
+        run: |
+          npm run poc > /tmp/wasmbox-poc-server.log 2>&1 &
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8080/alpine.html >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/wasmbox-poc-server.log
+          exit 1
+      - run: node tools/alpine-smoke.mjs
