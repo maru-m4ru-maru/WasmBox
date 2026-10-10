@@ -46,10 +46,26 @@ try {
   );
 
   const diagnostics = await sendCommand(
-    "echo SYS_BLOCK; ls /sys/block 2>&1; echo PARTITIONS; cat /proc/partitions; " +
+    "echo __FILESYSTEMS__; cat /proc/filesystems 2>&1; " +
+      "echo __SSE__; grep -o 'sse[0-9_]*' /proc/cpuinfo | sort -u; " +
+      "echo __MEMORY__; free -m 2>&1; " +
+      "echo __FORMAT_TOOLS__; which mke2fs mkfs.ext2 mkfs.ext4 2>&1; " +
+      "echo __DIAGNOSTICS_DONE__; " +
+      "echo SYS_BLOCK; ls /sys/block 2>&1; echo PARTITIONS; cat /proc/partitions; " +
       "echo DISK_NODES; ls -l /dev 2>&1 | grep -E ' (sd|hd|vd)[a-z]'; " +
       "echo DRIVER_LOG; dmesg 2>&1 | grep -iE 'ata|ide|disk|scsi|virtio' | tail -20",
   );
+
+  const reportStart = diagnostics.lastIndexOf("__FILESYSTEMS__");
+  const reportEnd = diagnostics.indexOf("__DIAGNOSTICS_DONE__", reportStart);
+  if (reportStart >= 0 && reportEnd >= 0) {
+    console.log(
+      "=== Guest capability diagnostics ===\n" +
+        diagnostics.slice(reportStart, reportEnd + "__DIAGNOSTICS_DONE__".length),
+    );
+  } else {
+    console.log("=== Guest capability diagnostics ===\n" + diagnostics.slice(-9000));
+  }
 
   const partitions = [
     ...diagnostics.matchAll(/^[ \t]*(\d+)[ \t]+(\d+)[ \t]+\d+[ \t]+((?:sd|hd)[a-z]+)[ \t]*$/gm),
@@ -98,7 +114,7 @@ try {
     `再読み込み後のディスクデータが一致しません。出力末尾:\n${restored.slice(-4000)}`,
   );
   assert.deepEqual(pageErrors, []);
-  console.log("v86 boot, block-device detection, dd write, flush, reload, and dd read all passed.");
+  console.log("v86 boot, guest capability diagnostics, block-device detection, dd write, flush, reload, and dd read all passed.");
 } catch (error) {
   const state = await page.evaluate(() => ({
     status: document.getElementById("status")?.textContent,
