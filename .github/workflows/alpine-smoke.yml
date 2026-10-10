@@ -11,6 +11,8 @@ on:
       - "src/engine/**"
       - "tools/chunk-image.ts"
       - "tools/inspect-image.ts"
+      - "tools/cpio.ts"
+      - "tools/make-initrd.ts"
       - "tools/alpine-smoke.mjs"
       - "package.json"
       - "package-lock.json"
@@ -25,6 +27,8 @@ on:
       - "src/engine/**"
       - "tools/chunk-image.ts"
       - "tools/inspect-image.ts"
+      - "tools/cpio.ts"
+      - "tools/make-initrd.ts"
       - "tools/alpine-smoke.mjs"
       - "package.json"
       - "package-lock.json"
@@ -35,11 +39,11 @@ permissions:
 
 jobs:
   alpine-v86-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm

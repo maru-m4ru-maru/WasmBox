@@ -1,0 +1,50 @@
+#!/bin/sh
+# ディスクの ext4 をルートにして、そこにある /sbin/init へ切り替える。
+
+CMDLINE_FILE="${WASMBOX_CMDLINE_FILE:-/proc/cmdline}"
+NEWROOT="${WASMBOX_NEWROOT:-/newroot}"
+
+say() {
+  echo "[wasmbox-init] $*"
+}
+
+rescue() {
+  say "$*"
+  say "シェルを起動します。確認: cat /proc/partitions ; ls /dev ; dmesg | tail"
+  exec /bin/sh
+}
+
+mount -t proc proc /proc 2>/dev/null
+mount -t sysfs sysfs /sys 2>/dev/null
+mount -t devtmpfs devtmpfs /dev 2>/dev/null
+
+ROOT=/dev/sda
+FSTYPE=ext4
+for arg in $(cat "$CMDLINE_FILE" 2>/dev/null); do
+  case "$arg" in
+    root=*) ROOT="${arg#root=}" ;;
+    rootfstype=*) FSTYPE="${arg#rootfstype=}" ;;
+  esac
+done
+say "ルート: $ROOT（$FSTYPE）"
+
+tries=0
+while [ ! -b "$ROOT" ]; do
+  tries=$((tries + 1))
+  [ "$tries" -gt 15 ] && rescue "ルートデバイス $ROOT が見つかりません"
+  sleep 1
+done
+
+mkdir -p "$NEWROOT"
+mount -t "$FSTYPE" -o rw "$ROOT" "$NEWROOT" || rescue "$ROOT を $FSTYPE としてマウントできません"
+[ -x "$NEWROOT/sbin/init" ] || rescue "$NEWROOT/sbin/init がありません（イメージが違う可能性があります）"
+
+umount /proc 2>/dev/null
+umount /sys 2>/dev/null
+umount /dev 2>/dev/null
+
+say "$NEWROOT へ切り替えます"
+switch_root "$NEWROOT" /sbin/init
+say "switch_root に失敗しました。chroot で代用します"
+exec chroot "$NEWROOT" /sbin/init
+rescue "chroot にも失敗しました"

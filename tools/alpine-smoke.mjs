@@ -5,8 +5,9 @@ const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();
 const pageErrors = [];
 page.on("pageerror", (error) => pageErrors.push(error.message));
-
 const PROMPT = "__WASMBX_PROMPT__ ";
+const CYCLES = 3;
+const measurements = [];
 
 async function sendCommand(command) {
   const previousPrompts = await page.evaluate((marker) => {
@@ -25,36 +26,53 @@ async function sendCommand(command) {
   await page.waitForFunction(
     ({ previous, marker }) => {
       const text = document.getElementById("serial")?.value ?? "";
-      const count = text.split(marker).length - 1;
-      return count > previous && text.endsWith(marker);
+      return text.split(marker).length - 1 > previous && text.endsWith(marker);
     },
     { previous: previousPrompts, marker: PROMPT },
     { timeout: 60000 },
   );
-
   return page.locator("#serial").inputValue();
 }
 
-async function prepareGuestShell() {
-  await page.goto(
-    "http://127.0.0.1:8080/alpine.html?smoke=1&memory=256",
-    { waitUntil: "load" },
-  );
+let commandId = 0;
+async function run(label, command) {
+  commandId += 1;
+  const beginToken = "__WASMBX_BEGIN_" + commandId + "__";
+  const endToken = "__WASMBX_END_" + commandId + "__";
+  const wrapped =
+    "printf '\\n" + beginToken + "\\n'; " + command +
+    "; code=$?; printf '\\n" + endToken + "%s\\n' \"$code\"";
+  await sendCommand(wrapped);
 
-  await page.waitForFunction(
-    () => {
-      const text = document.getElementById("serial")?.value ?? "";
-      return text.endsWith("~% ") || text.endsWith("# ") ||
-        /Kernel panic|Unable to mount root fs|No working init found/i.test(text);
-    },
-    null,
-    { timeout: 90000 },
-  );
+  const terminal = await page.locator("#serial").inputValue();
+  const begin = terminal.lastIndexOf(beginToken) + beginToken.length;
+  const end = terminal.lastIndexOf(endToken);
+  const exitCode = Number(terminal.slice(end + endToken.length).trim().split(/\r?\n/)[0]);
+  const output = terminal.slice(begin, end).replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, "").trim();
+  console.log("=== " + label + " (exit " + exitCode + ") ===\n" + output);
+  assert.equal(exitCode, 0, label + " failed:\n" + output);
+  return output;
+}
 
-  const initial = await page.locator("#serial").inputValue();
-  if (!initial.endsWith("~% ") && !initial.endsWith("# ")) {
-    throw new Error("ゲストのシェルが表示されませんでした。\n" + initial.slice(-12000));
-  }
+async function waitForDirectRoot(timeout) {
+  await page.waitForFunction(() => {
+    const terminal = document.getElementById("serial")?.value ?? "";
+    const header = document.getElementById("boot-info")?.textContent ?? "";
+    const failed = /Kernel panic|Unable to mount root fs|Run \/wasmbox-init as init process.*not found|initrd を取得できません/i.test(terminal + "\n" + header);
+    const directRootMarker = terminal.includes("[wasmbox-init] ルート:");
+    const alpinePrompt = terminal.endsWith("# ");
+    return failed || (header.includes("initrd あり") && directRootMarker && alpinePrompt);
+  }, null, { timeout });
+
+  const header = await page.locator("#boot-info").textContent();
+  const terminal = await page.locator("#serial").inputValue();
+  assert.ok(header?.includes("initrd あり"), "外付け initrd が指定されていません: " + header);
+  assert.match(
+    terminal,
+    /\[wasmbox-init\] ルート: \/dev\/(?:sda|hda)（ext4）/,
+    "initrd のルート切り替えログがありません:\n" + terminal.slice(-12000),
+  );
+  assert.ok(terminal.endsWith("# "), "Alpine のシェルに到達していません:\n" + terminal.slice(-12000));
 
   await page.evaluate((text) => {
     const emulator = window.__wasmboxAlpineV86;
@@ -66,107 +84,76 @@ async function prepareGuestShell() {
 
   await page.waitForFunction(
     (marker) => {
-      const text = document.getElementById("serial")?.value ?? "";
-      return text.includes("__WASMBX_READY__") && text.endsWith(marker);
+      const terminal = document.getElementById("serial")?.value ?? "";
+      return terminal.includes("__WASMBX_READY__") && terminal.endsWith(marker);
     },
     PROMPT,
     { timeout: 15000 },
   );
+
+  return { header, terminal, elapsedMs: Date.now() - bootStartedAt };
 }
 
+let bootStartedAt = 0;
 try {
-  await prepareGuestShell();
-
-  const diagnostics = await sendCommand(
-    "echo __WASMBX_PARTITIONS__; cat /proc/partitions; " +
-    "echo __WASMBX_BLOCKS__; ls /sys/block; " +
-    "echo __WASMBX_DEVICES__; ls -l /dev | grep -E ' (sd|hd)[a-z]'; " +
-    "echo __WASMBX_DIAG_END__",
-  );
-
-  const partitions = [
-    ...diagnostics.matchAll(/^[ \t]*(\d+)[ \t]+(\d+)[ \t]+\d+[ \t]+((?:sd|hd)[a-z]+)[ \t]*$/gm),
-  ].map((match) => ({ major: match[1], minor: match[2], name: match[3] }));
-
-  console.log("=== Guest block device diagnostics ===\n" +
-    diagnostics.slice(Math.max(0, diagnostics.lastIndexOf("__WASMBX_PARTITIONS__")), diagnostics.lastIndexOf("__WASMBX_DIAG_END__") + "__WASMBX_DIAG_END__".length));
-
-  for (const disk of partitions) {
-    await sendCommand(
-      "mknod /dev/" + disk.name + " b " + disk.major + " " + disk.minor + " 2>/dev/null || true",
+  for (let cycle = 1; cycle <= CYCLES; cycle += 1) {
+    bootStartedAt = Date.now();
+    await page.goto(
+      "http://127.0.0.1:8080/alpine.html?smoke=1&memory=256&cycle=" + cycle,
+      { waitUntil: "load" },
     );
+    const boot = await waitForDirectRoot(120000);
+    console.log("=== Direct-root boot cycle " + cycle + " ===");
+    console.log("Shell ready: " + (boot.elapsedMs / 1000).toFixed(2) + " s");
+    console.log("Boot options: " + boot.header);
+
+    const rootMount = await run("Root mount", "grep -E '^[^ ]+ / ext4 ' /proc/mounts");
+    assert.match(rootMount, /^\/dev\/(?:sda|hda) \/ ext4/m, "Alpine ext4 is not the actual root filesystem");
+
+    await run("Kernel command line", "cat /proc/cmdline");
+    const release = await run("Alpine release", "cat /etc/alpine-release");
+    assert.match(release, /^3\.21\./);
+    const nodeVersion = await run("Node.js version", "node --version");
+    assert.match(nodeVersion, /^v\d+\.\d+\.\d+/);
+    const nodeOutput = await run("Node.js execution", 'node -e "console.log(1 + 1)"');
+    assert.match(nodeOutput, /(?:^|\n)2(?:\n|$)/);
+    const pythonVersion = await run("Python version", "python3 --version");
+    assert.match(pythonVersion, /^Python \d+\.\d+/);
+    const memory = await run("Free memory after switch_root", "free -m");
+    const nodeTiming = await run("Node.js startup time", 'time node -e "console.log(1)"');
+    const pythonTiming = await run("Python startup time", 'time python3 -c "print(1)"');
+
+    const memoryLine = memory.split(/\r?\n/).find((line) => /^Mem:\s/.test(line));
+    const memoryValues = memoryLine?.match(/^Mem:\s+(\d+)\s+(\d+)\s+(\d+)(?:\s+\d+){0,2}\s+(\d+)$/);
+    measurements.push({
+      cycle,
+      shellReadySeconds: Number((boot.elapsedMs / 1000).toFixed(2)),
+      memoryTotalMiB: memoryValues ? Number(memoryValues[1]) : null,
+      memoryUsedMiB: memoryValues ? Number(memoryValues[2]) : null,
+      memoryFreeMiB: memoryValues ? Number(memoryValues[3]) : null,
+      nodeTiming: nodeTiming.match(/real\s+([^\r\n]+)/)?.[1] ?? "not parsed",
+      pythonTiming: pythonTiming.match(/real\s+([^\r\n]+)/)?.[1] ?? "not parsed",
+      nodeVersion: nodeVersion.trim(),
+      pythonVersion: pythonVersion.trim(),
+    });
+
+    console.log(JSON.stringify(measurements.at(-1), null, 2));
+    await page.locator("#flush").click();
+    await page.waitForTimeout(250);
   }
-
-  const mountResult = await sendCommand(
-    "mkdir -p /mnt/alpine && " +
-    "for d in /dev/sda /dev/hda; do " +
-    "if [ -b \"$d\" ]; then " +
-    "mount -t ext4 \"$d\" /mnt/alpine 2>&1 && " +
-    "test -f /mnt/alpine/etc/alpine-release && " +
-    "echo __WASMBX_ROOT_MOUNTED__$d && break; " +
-    "fi; done; " +
-    "test -f /mnt/alpine/etc/alpine-release && cat /mnt/alpine/etc/alpine-release",
-  );
-
-  const mountedMatch = mountResult.match(/__WASMBX_ROOT_MOUNTED__(\/dev\/(?:sd|hd)[a-z]+)/);
-  if (!mountedMatch) {
-    throw new Error(
-      "Alpine の ext4 ルートFSをマウントできませんでした。\n" +
-      mountResult.slice(-10000) +
-      "\nパーティション: " + JSON.stringify(partitions),
-    );
-  }
-
-  const rootDevice = mountedMatch[1];
-  console.log("Alpine root filesystem mounted from " + rootDevice);
-
-  const prep = await sendCommand(
-    "mkdir -p /mnt/alpine/proc /mnt/alpine/sys /mnt/alpine/dev; " +
-    "mount -t proc proc /mnt/alpine/proc 2>&1 || true; " +
-    "mount -t sysfs sysfs /mnt/alpine/sys 2>&1 || true; " +
-    "mount -o bind /dev /mnt/alpine/dev 2>&1 || true; " +
-    "test -x /mnt/alpine/bin/sh && test -x /mnt/alpine/usr/bin/node && echo __WASMBX_ROOT_READY__",
-  );
-  assert.ok(prep.includes("__WASMBX_ROOT_READY__"), "Alpine root filesystem is incomplete:\n" + prep.slice(-5000));
-
-  let commandId = 0;
-  async function run(label, command) {
-    commandId += 1;
-    const beginToken = "__WASMBX_BEGIN_" + commandId + "__";
-    const endToken = "__WASMBX_END_" + commandId + "__";
-    const input =
-      "printf '\\n" + beginToken + "\\n'; " + command +
-      "; code=$?; printf '\\n" + endToken + "%s\\n' \"$code\"";
-
-    await sendCommand(input);
-
-    const terminal = await page.locator("#serial").inputValue();
-    const begin = terminal.lastIndexOf(beginToken) + beginToken.length;
-    const end = terminal.lastIndexOf(endToken);
-    const exitCode = Number(terminal.slice(end + endToken.length).trim().split(/\r?\n/)[0]);
-    const output = terminal.slice(begin, end).replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, "").trim();
-
-    console.log("=== " + label + " (exit " + exitCode + ") ===\n" + output);
-    assert.equal(exitCode, 0, label + " failed:\n" + output);
-    return output;
-  }
-
-  const chroot = (command) => "chroot /mnt/alpine /bin/sh -c " + "'" + command.replaceAll("'", "'\\''") + "'";
-
-  await run("Alpine release", chroot("cat /etc/alpine-release"));
-  const nodeVersion = await run("Node.js version", chroot("node --version"));
-  assert.match(nodeVersion, /v\d+\.\d+\.\d+/);
-  const nodeOutput = await run("Node.js execution", chroot('node -e "console.log(1 + 1)"'));
-  assert.match(nodeOutput, /(?:^|\n)2(?:\n|$)/);
-  const pythonVersion = await run("Python version", chroot("python3 --version"));
-  assert.match(pythonVersion, /Python \d+\.\d+/);
-  await run("Guest memory", chroot("free -m"));
-  await run("Node.js startup time", "time " + chroot('node -e "console.log(1)"'));
-  await run("Python startup time", "time " + chroot('python3 -c "print(1)"'));
-  await run("Disk driver log", 'dmesg | grep -iE "sd[a-z]|hd[a-z]" | tail -20');
 
   assert.deepEqual(pageErrors, []);
-  console.log("Alpine root mount, Node.js execution, Python execution, memory report, and startup timing all passed.");
+  console.log("=== Direct-root startup summary ===");
+  console.log(JSON.stringify(measurements, null, 2));
+  console.log("Three direct-root Alpine boots, Node.js, Python, and post-switch_root memory checks all passed.");
+} catch (error) {
+  const state = await page.evaluate(() => ({
+    bootInfo: document.getElementById("boot-info")?.textContent,
+    status: document.getElementById("status")?.textContent,
+    serial: document.getElementById("serial")?.value.slice(-16000),
+  })).catch(() => ({}));
+  console.error(JSON.stringify({ error: String(error), pageErrors, state, measurements }, null, 2));
+  process.exitCode = 1;
 } finally {
   await browser.close();
 }

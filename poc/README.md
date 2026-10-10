@@ -2,9 +2,10 @@
 
 v86 のディスク（hda）に、WasmBox の `BlockStore`（IndexedDB に永続化）を接続して Linux を起動する。
 
-> ⚠️ **この PoC は、v86 の実物がない環境で書かれたため、まだ一度も v86 と一緒に動かしていません。**
-> 動作確認済みなのは、`BlockStore` と v86 用アダプタ単体（テストと、実ブラウザでの自己診断）までです。
-> うまく動かなければ、先に「トラブルシュート」を見てください。結果を共有してもらえれば、一緒に直します。
+> **確認状況**
+> - ✅ v86 実ブラウザ上で、BlockStore の書き込み・flush・再読み込み後の読み戻しを確認済み。
+> - ✅ Alpine 3.21 の ext4 から Node.js 22 と Python 3.12 を実行する経路を確認済み。
+> - ⚠️ 外付け initrd による Alpine 直接ルート起動は、GitHub Actions の実ブラウザテストで検証中。
 
 ## 0. まず自己診断（v86 不要）
 
@@ -49,7 +50,18 @@ mv /tmp/buildroot-bzimage68_v86.bin poc/vendor/buildroot-bzimage.bin
 - `libv86.js` が無く `libv86.mjs` だけの場合は、`poc/index.html` の読み込み方法を ES モジュールに変更する必要があります（グローバルの `V86` がなくなるため）。
 - `poc/vendor/` は `.gitignore` 済みです。v86・BIOS・カーネルの実体はコミットしないでください。
 
-## 2. 起動して、ディスクの疎通を確認する
+## 2. Alpine ルートを起動して Node.js を確認する
+
+`bash image/build.sh` で Alpine ext4 と `initrd.cpio` を作ってから `npm run poc` を実行し、`alpine.html` を開きます。`[wasmbox-init] ルート: /dev/sda（ext4）` が出て、`/proc/mounts` で `/` が ext4 になれば直接ルート起動です。詳細は `image/README.md` を参照してください。
+
+```sh
+node --version
+node -e "console.log(1 + 1)"
+python3 --version
+free -m
+```
+
+## 3. ブロックデバイス単体の疎通確認（initrd を使わない場合）
 
 `npm run poc` のあと、<http://127.0.0.1:8080/> を開きます。起動には 10〜30 秒ほどかかることがあります。
 シリアルコンソール（黒い欄）をクリックしてから入力します。

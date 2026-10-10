@@ -18,9 +18,8 @@ const memoryMiB = Number(params.get("memory") ?? "256");
 const root = params.get("root") ?? "/dev/sda";
 const kernel = params.get("kernel") ?? "vendor/buildroot-bzimage.bin";
 const imageDir = (params.get("image") ?? "image").replace(/\/+$/, "");
-const cmdline =
-  params.get("cmdline") ??
-  "root=" + root + " rootfstype=ext4 rw rootwait console=ttyS0 tsc=reliable mitigations=off random.trust_cpu=on";
+const cmdlineParam = params.get("cmdline");
+const initrdParam = params.get("initrd");
 
 const $ = (id: string) => {
   const element = document.getElementById(id);
@@ -78,6 +77,28 @@ async function main(): Promise<void> {
   }
   const manifest = validateManifest(await response.json());
 
+  let initrd: { url: string } | undefined;
+  if (initrdParam !== "none") {
+    const initrdUrl = initrdParam ?? imageDir + "/initrd.cpio";
+    const head = await fetch(initrdUrl, { method: "HEAD", cache: "no-store" }).catch(() => undefined);
+    if (head?.ok) {
+      initrd = { url: initrdUrl };
+    } else if (initrdParam) {
+      log("initrd を取得できません: " + initrdUrl + "（HTTP " + (head?.status ?? "接続失敗") + "）");
+      return;
+    }
+  }
+
+  const cmdline =
+    cmdlineParam ??
+    [
+      initrd ? "rdinit=/wasmbox-init" : undefined,
+      "root=" + root,
+      "rootfstype=ext4 rw rootwait console=ttyS0 tsc=reliable mitigations=off random.trust_cpu=on",
+    ]
+      .filter(Boolean)
+      .join(" ");
+
   await requestPersistentStorage();
   let release: () => void;
   try {
@@ -120,14 +141,15 @@ async function main(): Promise<void> {
 
   $("boot-info").textContent =
     "イメージ " + manifest.imageId +
-    "（" + (manifest.size / MiB).toFixed(0) + " MiB）／ RAM " + memoryMiB +
-    " MiB ／ " + cmdline;
+    "（" + (manifest.size / MiB).toFixed(0) + " MiB）／ RAM " + memoryMiB + " MiB ／ " +
+    (initrd ? "initrd あり（" + initrd.url + "）" : "initrd なし") + "\n" + cmdline;
 
   const emulator = new V86({
     wasm_path: "vendor/v86.wasm",
     bios: { url: "vendor/seabios.bin" },
     vga_bios: { url: "vendor/vgabios.bin" },
     bzimage: { url: kernel },
+    ...(initrd ? { initrd } : {}),
     cmdline,
     hda: device,
     memory_size: memoryMiB * MiB,

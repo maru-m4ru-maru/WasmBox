@@ -28,6 +28,9 @@ echo "==> チャンク分割（${CHUNK_SIZE} バイト）"
 node tools/chunk-image.ts "${OUT}/rootfs.ext4" "$DEST" \
   --chunk-size="${CHUNK_SIZE}" --image-id="alpine-${ALPINE_VERSION}-x86"
 
+echo "==> 外付け initrd を作成"
+node tools/make-initrd.ts "${DEST}/initrd.cpio"
+
 printf '*\n' > "${OUT}/.gitignore"
 printf '*\n' > "${DEST}/.gitignore"
 

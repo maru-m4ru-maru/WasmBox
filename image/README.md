@@ -2,7 +2,7 @@
 
 32-bit x86 Alpine with Node.js and Python is packaged into an ext4 image, split into content-addressed chunks, and served to the v86 BlockStore.
 
-The first actual v86 test found that the selected disk-enabled Buildroot kernel boots its own built-in initramfs and shell instead of switching directly to the external disk when given `root=/dev/sda` or `root=/dev/hda`. The automated test therefore mounts the Alpine ext4 image from the Buildroot shell and runs Alpine programs inside `chroot`. Direct boot into Alpine's init remains unverified.
+The external initrd now provides the `rdinit=/wasmbox-init` path. The actual direct-root handoff is being tested in v86 by GitHub Actions; Node.js and Python execution were already verified using the earlier chroot path.
 
 ## Build
 
@@ -67,3 +67,16 @@ Record the time until the guest shell appears, the downloaded chunk count and Mi
 - ext4 is created with `metadata_csum`, `64bit`, and `orphan_file` disabled for compatibility with the older kernel. The journal remains enabled.
 - The default image is 512 MiB. Zero-filled chunks are not delivered, so unused disk space does not need to be downloaded.
 - The BlockStore writes are periodically flushed, but guest filesystem write ordering is not guaranteed to match flush boundaries.
+
+
+## Direct-root startup with external initrd
+
+The selected kernel contains a Buildroot initramfs, whose embedded `/init` starts Buildroot rather than using `root=` to switch to Alpine. `tools/make-initrd.ts` creates a small uncompressed `newc` cpio archive with `/wasmbox-init` and minimal device nodes. `poc/alpine.ts` passes it to v86 and adds `rdinit=/wasmbox-init`.
+
+The init script reads `root=` and `rootfstype=`, waits up to 15 seconds for the device, mounts ext4, checks `/sbin/init`, and calls `switch_root /newroot /sbin/init`. If that fails, it attempts `chroot` and leaves a rescue shell if necessary.
+
+A successful direct-root boot must print `[wasmbox-init] ルート: /dev/sda（ext4）`. The live smoke test also verifies that `/proc/mounts` shows ext4 mounted at `/`, runs Node.js and Python, records `free -m`, and repeats the browser boot three times.
+
+Use `?initrd=none` to disable the external initrd, `?initrd=...` to provide an explicit path, `?root=/dev/hda` for a different disk name, and `?memory=512` to increase guest RAM.
+
+Troubleshooting: if Buildroot's `~%` prompt appears without a `[wasmbox-init]` line, check the initrd URL and the `rdinit=` command-line parameter. If the device is missing, inspect `/proc/partitions`; if mounting fails, inspect `dmesg | tail` and the ext4 feature flags.
