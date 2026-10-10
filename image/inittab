@@ -1,0 +1,16 @@
+# WasmBox 用の最小の init 設定（busybox init）。OpenRC は使わない。
+::sysinit:/bin/mount -t proc proc /proc
+::sysinit:/bin/mount -t sysfs sysfs /sys
+# カーネルが devtmpfs を自動でマウントしている場合は失敗するが、害はない
+::sysinit:/bin/mount -t devtmpfs devtmpfs /dev
+::sysinit:/bin/mkdir -p /dev/pts /dev/shm
+::sysinit:/bin/mount -t devpts devpts /dev/pts
+::sysinit:/bin/mount -t tmpfs tmpfs /tmp
+::sysinit:/bin/mount -t tmpfs tmpfs /run
+::sysinit:/bin/hostname -F /etc/hostname
+
+# シリアルコンソールでシェルを起動する（v86 のシリアルが ttyS0 に見える前提）
+ttyS0::respawn:-/bin/sh
+
+::ctrlaltdel:/sbin/reboot
+::shutdown:/bin/umount -a -r

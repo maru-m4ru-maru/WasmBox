@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.ts\"",
     "chunk-image": "node tools/chunk-image.ts",
-    "poc:build": "esbuild poc/main.ts poc/selftest.ts --bundle --format=esm --target=es2022 --outdir=poc/dist",
+    "poc:build": "esbuild poc/main.ts poc/selftest.ts poc/alpine.ts --bundle --format=esm --target=es2022 --outdir=poc/dist",
     "poc:serve": "node tools/serve.ts poc 8080",
     "poc": "npm run poc:build && npm run poc:serve"
   },
