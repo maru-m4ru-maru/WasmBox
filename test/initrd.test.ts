@@ -190,7 +190,7 @@ describe("/wasmbox-initスクリプト", () => {
   it("switch_root失敗時にchrootを使う", { skip: hasBlockDevice ? false : blockDevice + " がありません" }, async () => {
     const result = await runScript({ cmdline: "root=" + blockDevice, switchRootFails: true });
     assert.equal(result.status, 0);
-    assert.match(result.stdout, /chrootで代用/);
+    assert.match(result.stdout, /chroot\s+で代用/);
     assert.equal(result.calls.at(-1), "chroot " + result.newroot + " /sbin/init");
   });
 
@@ -203,7 +203,7 @@ describe("/wasmbox-initスクリプト", () => {
 
   it("/sbin/initが無いルートではシェルを残す", { skip: hasBlockDevice ? false : blockDevice + " がありません" }, async () => {
     const result = await runScript({ cmdline: "root=" + blockDevice, withInit: false });
-    assert.match(result.stdout, /sbin\/initがありません/);
+    assert.match(result.stdout, /sbin\/init\s+がありません/);
     assert.ok(!result.calls.some((call) => call.startsWith("switch_root")));
   });
 
