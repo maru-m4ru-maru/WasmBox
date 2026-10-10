@@ -144,7 +144,7 @@ try {
     const begin = terminal.lastIndexOf(beginToken) + beginToken.length;
     const end = terminal.lastIndexOf(endToken);
     const exitCode = Number(terminal.slice(end + endToken.length).trim().split(/\r?\n/)[0]);
-    const output = terminal.slice(begin, end).replace(/\u001B\\[[0-?]*[ -/]*[@-~]/g, "").trim();
+    const output = terminal.slice(begin, end).replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, "").trim();
 
     console.log("=== " + label + " (exit " + exitCode + ") ===\n" + output);
     assert.equal(exitCode, 0, label + " failed:\n" + output);
